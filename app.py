@@ -67,7 +67,7 @@ if st.button("🚀 Generate Documents", type="primary"):
             zip_buffer = io.BytesIO()
             files_created = 0
             
-            with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, false) as zip_file:
+            with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
                 
                 # Progress Bar
                 progress_bar = st.progress(0)
@@ -144,4 +144,5 @@ if st.button("🚀 Generate Documents", type="primary"):
             )
 
         except Exception as e:
+
             st.error(f"An error occurred: {e}")
