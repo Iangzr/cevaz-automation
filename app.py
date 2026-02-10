@@ -43,10 +43,10 @@ def load_csv(file):
         return pd.read_csv(file, encoding='latin1')
 
 # --- STREAMLIT UI ---
-st.set_page_config(page_title="Generator: Multi-Mode", page_icon="⚡")
+st.set_page_config(page_title="Generator: Final Version", page_icon="💎")
 
-st.title("⚡ Universal Document Generator")
-st.markdown("Works for **Adults** (Time Match) AND **Kids/Teens** (Category Match).")
+st.title("💎 Final Document Generator")
+st.markdown("Handles **Adults/Kids/Teens** matching and updates the **invitation text** automatically.")
 
 # 1. FILE UPLOADERS
 col1, col2 = st.columns(2)
@@ -80,7 +80,6 @@ if st.button("🚀 Generate Files", type="primary"):
             links_df.columns = [str(c).upper().strip() for c in links_df.columns]
             
             # --- DETECT MODE ---
-            # Check if Links file has "EDAD" (Category Mode) or "HORA" (Time Mode)
             MODE = "UNKNOWN"
             if 'EDAD' in links_df.columns:
                 MODE = "CATEGORY"
@@ -109,28 +108,30 @@ if st.button("🚀 Generate Files", type="primary"):
                     course_lvl_code = normalize_level(level_raw)
                     course_h, course_m = get_start_time(schedule_raw)
 
-                    # Initialize Match
+                    # Initialize Logic Vars
                     found_link = "LINK_NOT_FOUND"
-                    category_prefix = "" # Used for filename
+                    category_prefix = "" 
+                    type_label = "para adultos" # Default text
 
                     # --- MATCHING LOGIC ---
                     if MODE == "CATEGORY":
-                        # Get Category from Course (e.g. "NINOS")
-                        course_cat = normalize_text(str(row.get('CATEGORIA', ''))) # ninos
+                        # Get Category from Course
+                        course_cat = normalize_text(str(row.get('CATEGORIA', ''))) # ninos / jovenes
                         category_prefix = course_cat.upper() + "_"
 
+                        # Set Type Label
+                        if "nino" in course_cat: type_label = "para niños"
+                        elif "joven" in course_cat: type_label = "para jóvenes"
+
                         for _, link_row in links_df.iterrows():
-                            # Get Link Category (e.g. "KIDS")
+                            # Get Link Category
                             link_cat_raw = str(link_row.get('EDAD', ''))
-                            link_cat = normalize_text(link_cat_raw) # kids
+                            link_cat = normalize_text(link_cat_raw)
                             link_lvl_code = normalize_level(str(link_row.get(link_level_col, '')))
                             
-                            # 1. CHECK LEVEL
-                            if link_lvl_code != course_lvl_code:
-                                continue
+                            if link_lvl_code != course_lvl_code: continue
 
-                            # 2. CHECK CATEGORY (Smart Mapping)
-                            # Map "ninos" -> "kids"
+                            # Smart Category Match
                             is_cat_match = False
                             if "nino" in course_cat and "kid" in link_cat: is_cat_match = True
                             elif "joven" in course_cat and "joven" in link_cat: is_cat_match = True
@@ -141,7 +142,7 @@ if st.button("🚀 Generate Files", type="primary"):
                                 break
 
                     elif MODE == "TIME":
-                        # Old Logic (Adults)
+                        # Adults Logic
                         if course_h is not None:
                             for _, link_row in links_df.iterrows():
                                 link_h, link_m = get_start_time(str(link_row.get('HORA', '')))
@@ -157,19 +158,30 @@ if st.button("🚀 Generate Files", type="primary"):
                         doc = Document(template_file)
                         
                         for p in doc.paragraphs:
+                            # 1. Date Fix
                             if "24 de" in p.text and "2025" in p.text:
                                 p.text = re.sub(r'24 de \w+ de 2025', date_text, p.text, flags=re.IGNORECASE)
                             
+                            # 2. Standard placeholders
                             if "{{LEVEL}}" in p.text: p.text = p.text.replace("{{LEVEL}}", level_raw)
                             if "{{ID}}" in p.text: p.text = p.text.replace("{{ID}}", id_raw)
                             if "{{WA_LINK}}" in p.text: p.text = p.text.replace("{{WA_LINK}}", found_link)
                             if "{{SCHEDULE}}" in p.text: 
                                 p.text = p.text.replace("{{SCHEDULE}}", f"{days_text} / {schedule_raw}")
 
+                            # 3. TYPE REPLACEMENT (Adults/Kids/Teens)
+                            # If user put {{TYPE}} in doc:
+                            if "{{TYPE}}" in p.text: 
+                                p.text = p.text.replace("{{TYPE}}", type_label)
+                            
+                            # Auto-fix: If user left "para adultos" in doc but this is a kids/teens course:
+                            if "para adultos" in p.text and type_label != "para adultos":
+                                p.text = p.text.replace("para adultos", type_label)
+
                         doc_io = io.BytesIO()
                         doc.save(doc_io)
                         
-                        # FILENAME: "JOVENES_LEVEL 01_245.docx"
+                        # FILENAME
                         schedule_safe = schedule_raw.replace(":", "").replace(" ", "").replace("/", "")
                         fname_str = f"{category_prefix}{level_raw}_{schedule_safe}.docx"
                         fname = clean_filename(fname_str)
@@ -186,7 +198,7 @@ if st.button("🚀 Generate Files", type="primary"):
             st.download_button(
                 "📥 Download Zip",
                 data=zip_buffer.getvalue(),
-                file_name="Universal_Docs.zip",
+                file_name="Final_Invitations.zip",
                 mime="application/zip"
             )
 
