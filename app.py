@@ -7,13 +7,11 @@ import zipfile
 
 # --- HELPER FUNCTIONS ---
 def clean_filename(name):
-    """Removes invalid characters."""
     return re.sub(r'[\\/*?:"<>|]', "", name)
 
 def get_start_time(text):
     """Parses '8:30' from '8:30 A 10:00AM' -> (8, 30)."""
     if not isinstance(text, str): return None, None
-    # Look for H:MM pattern
     match = re.search(r'(\d{1,2})[:.](\d{2})', text)
     if match:
         return int(match.group(1)), int(match.group(2))
@@ -22,7 +20,6 @@ def get_start_time(text):
 def normalize_level(text):
     """Turns 'NIVEL 01' -> '1' for matching."""
     if not isinstance(text, str): return str(text)
-    # Remove 'NIVEL' or 'LEVEL' and leading zeros
     clean = re.sub(r'^(LEVEL|NIVEL)\s*', '', text.strip(), flags=re.IGNORECASE)
     clean = re.sub(r'^0+', '', clean)
     return clean.upper()
@@ -30,8 +27,8 @@ def normalize_level(text):
 # --- STREAMLIT UI ---
 st.set_page_config(page_title="Generator: ProgMyJFeb2026", page_icon="📅")
 
-st.title("📅 Document Generator (Level_Hour Mode)")
-st.markdown("Upload your new lists. Filenames will be: `LEVEL 01_830A1000AM.docx`")
+st.title("📅 Document Generator (Fixed)")
+st.markdown("Upload your new lists. Validates 'LEVEL' or 'NIVEL' columns automatically.")
 
 # 1. FILE UPLOADERS
 col1, col2 = st.columns(2)
@@ -48,7 +45,7 @@ c1, c2 = st.columns(2)
 with c1:
     date_text = st.text_input("Start Date", "24 de febrero de 2026")
 with c2:
-    days_text = st.text_input("Days Text", "TUESDAY TO FRIDAY") # Change if needed
+    days_text = st.text_input("Days Text", "TUESDAY TO FRIDAY")
 
 # 3. GENERATE BUTTON
 if st.button("🚀 Generate Files", type="primary"):
@@ -64,6 +61,10 @@ if st.button("🚀 Generate Files", type="primary"):
             courses_df.columns = [str(c).upper().strip() for c in courses_df.columns]
             links_df.columns = [str(c).upper().strip() for c in links_df.columns]
             
+            # Smart Column Detection for Links
+            # It will look for 'NIVEL' first, if not found, try 'LEVEL'
+            link_level_col = 'NIVEL' if 'NIVEL' in links_df.columns else 'LEVEL'
+            
             zip_buffer = io.BytesIO()
             files_created = 0
             
@@ -73,19 +74,23 @@ if st.button("🚀 Generate Files", type="primary"):
 
                 for index, row in courses_df.iterrows():
                     # Extract Data
-                    level_raw = str(row.get('NIVEL', '')).strip()   # "NIVEL 01"
-                    schedule_raw = str(row.get('HORARIO', '')).strip() # "8:30 A 10:00AM"
+                    level_raw = str(row.get('NIVEL', '')).strip()
+                    schedule_raw = str(row.get('HORARIO', '')).strip()
                     id_raw = str(row.get('ID', '')).replace('.0', '').strip()
                     
                     course_h, course_m = get_start_time(schedule_raw)
-                    course_lvl_code = normalize_level(level_raw) # "1"
+                    course_lvl_code = normalize_level(level_raw)
 
                     # FIND LINK
                     found_link = "LINK_NOT_FOUND"
+                    
                     if course_h is not None:
                         for _, link_row in links_df.iterrows():
+                            # Parse Link Time
                             link_h, link_m = get_start_time(str(link_row.get('HORA', '')))
-                            link_lvl_code = normalize_level(str(link_row.get('LEVEL', '')))
+                            
+                            # Parse Link Level (using the smart column detection)
+                            link_lvl_code = normalize_level(str(link_row.get(link_level_col, '')))
                             
                             # Match: Same Hour, Same Minute, Same Level
                             if link_h == course_h and link_m == course_m and link_lvl_code == course_lvl_code:
@@ -111,11 +116,8 @@ if st.button("🚀 Generate Files", type="primary"):
                         doc.save(doc_io)
                         
                         # FILENAME FORMAT: "LEVEL 01_830A1000AM.docx"
-                        # 1. Clean Schedule (remove spaces, colons)
-                        schedule_clean = schedule_raw.replace(":", "").replace(" ", "").replace("/", "")
-                        # 2. Build Name
-                        fname_str = f"{level_raw}_{schedule_clean}.docx"
-                        fname = clean_filename(fname_str)
+                        schedule_safe = schedule_raw.replace(":", "").replace(" ", "").replace("/", "")
+                        fname = clean_filename(f"{level_raw}_{schedule_safe}.docx")
                         
                         zip_file.writestr(fname, doc_io.getvalue())
                         files_created += 1
