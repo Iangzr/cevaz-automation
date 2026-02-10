@@ -33,6 +33,15 @@ def normalize_level(text):
     clean = re.sub(r'^0+', '', clean)
     return clean.upper()
 
+def load_csv(file):
+    """Smart CSV Loader: Tries UTF-8 first, then Latin-1."""
+    try:
+        file.seek(0)
+        return pd.read_csv(file, encoding='utf-8')
+    except UnicodeDecodeError:
+        file.seek(0)
+        return pd.read_csv(file, encoding='latin1')
+
 # --- STREAMLIT UI ---
 st.set_page_config(page_title="Generator: Multi-Mode", page_icon="⚡")
 
@@ -62,9 +71,9 @@ if st.button("🚀 Generate Files", type="primary"):
         st.error("Please upload all 3 files.")
     else:
         try:
-            # Load Data
-            courses_df = pd.read_csv(course_file, encoding='latin1')
-            links_df = pd.read_csv(links_file, encoding='latin1')
+            # Load Data (Smart Loader)
+            courses_df = load_csv(course_file)
+            links_df = load_csv(links_file)
             
             # Clean Headers (Uppercased and Strip)
             courses_df.columns = [str(c).upper().strip() for c in courses_df.columns]
