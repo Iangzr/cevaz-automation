@@ -38,10 +38,10 @@ def load_csv(file):
         return pd.read_csv(file, encoding='latin1')
 
 # --- STREAMLIT UI ---
-st.set_page_config(page_title="Generator: Format Preserver", page_icon="🎨")
+st.set_page_config(page_title="Generator: Perfect Filenames", page_icon="📝")
 
-st.title("🎨 Document Generator (Format Preserver)")
-st.markdown("Generates docs while keeping your **bolding, colors, and fonts** intact.")
+st.title("📝 Document Generator (Perfect Filenames)")
+st.markdown("Preserves your template's formatting and creates clean filenames like: **Level 7 4:30 - 6:00 M-V**")
 
 # 1. FILE UPLOADERS
 col1, col2 = st.columns(2)
@@ -54,11 +54,14 @@ template_file = st.file_uploader("3. Upload Template (.docx)", type=["docx"])
 
 # 2. SETTINGS
 st.divider()
-c1, c2 = st.columns(2)
+st.subheader("⚙️ Text & Filename Settings")
+c1, c2, c3 = st.columns(3)
 with c1:
     date_text = st.text_input("Start Date", "24 de febrero de 2026")
 with c2:
-    days_text = st.text_input("Days Text", "TUESDAY TO FRIDAY")
+    days_text = st.text_input("Days (Inside Doc)", "TUESDAY TO FRIDAY")
+with c3:
+    days_abbrev = st.text_input("Days Abbrev. (For Filename)", "M-V")
 
 # 3. GENERATE BUTTON
 if st.button("🚀 Generate Files", type="primary"):
@@ -145,27 +148,42 @@ if st.button("🚀 Generate Files", type="primary"):
                             "{{TYPE}}": type_label
                         }
 
-                        # Auto-fix Adults label if needed
                         if type_label != "para adultos":
                             replacements["para adultos"] = type_label
 
                         for p in doc.paragraphs:
-                            # We iterate through the runs to preserve formatting
                             for run in p.runs:
-                                # 1. Replace Text
                                 for key, val in replacements.items():
                                     if key in run.text:
                                         run.text = run.text.replace(key, val)
                                 
-                                # 2. Replace Date
                                 if "24 de" in run.text and "2025" in run.text:
                                     run.text = re.sub(r'24 de \w+ de 2025', date_text, run.text, flags=re.IGNORECASE)
 
                         doc_io = io.BytesIO()
                         doc.save(doc_io)
                         
-                        schedule_safe = schedule_raw.replace(":", "").replace(" ", "").replace("/", "")
-                        fname_str = f"{category_prefix}{level_raw}_{schedule_safe}.docx"
+                        # --- FILENAME FORMATTING MAGIC ---
+                        # 1. Format Level: "LEVEL 07" -> "Level 7"
+                        lvl_num_match = re.search(r'\d+', level_raw)
+                        if lvl_num_match:
+                            lvl_num = str(int(lvl_num_match.group())) # removes leading zero
+                            lvl_clean = f"Level {lvl_num}"
+                        else:
+                            lvl_clean = level_raw
+
+                        # 2. Format Schedule: "4:30 A 06:00PM" -> "4:30 - 6:00"
+                        times = re.findall(r'(\d{1,2})[:.](\d{2})', schedule_raw)
+                        if len(times) >= 2:
+                            h1, m1 = int(times[0][0]), times[0][1]
+                            h2, m2 = int(times[1][0]), times[1][1]
+                            sched_clean = f"{h1}:{m1:02d} - {h2}:{m2:02d}"
+                        else:
+                            # Fallback if it can't find two times
+                            sched_clean = schedule_raw.replace(":", "").replace("/", "-") 
+                            
+                        # 3. Combine: "JOVENES_Level 7 4:30 - 6:00 M-V.docx"
+                        fname_str = f"{category_prefix}{lvl_clean} {sched_clean} {days_abbrev}.docx"
                         fname = clean_filename(fname_str)
                         
                         zip_file.writestr(fname, doc_io.getvalue())
