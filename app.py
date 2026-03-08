@@ -12,14 +12,11 @@ def clean_filename(name):
     return re.sub(r'[\\/*?:"<>|]', "", name)
 
 def normalize_text(text):
-    """Removes accents and lowers case for comparison (jovenes == JÓVENES)."""
     if not isinstance(text, str): return str(text)
-    # Normalize unicode characters (e.g., ó -> o)
     text = unicodedata.normalize('NFKD', text).encode('ASCII', 'ignore').decode('utf-8')
     return text.lower().strip()
 
 def get_start_time(text):
-    """Parses '2:45' -> (2, 45)."""
     if not isinstance(text, str): return None, None
     match = re.search(r'(\d{1,2})[:.](\d{2})', text)
     if match:
@@ -27,14 +24,12 @@ def get_start_time(text):
     return None, None
 
 def normalize_level(text):
-    """Turns 'NIVEL 01' -> '1'."""
     if not isinstance(text, str): return str(text)
     clean = re.sub(r'^(LEVEL|NIVEL)\s*', '', text.strip(), flags=re.IGNORECASE)
     clean = re.sub(r'^0+', '', clean)
     return clean.upper()
 
 def load_csv(file):
-    """Smart CSV Loader: Tries UTF-8 first, then Latin-1."""
     try:
         file.seek(0)
         return pd.read_csv(file, encoding='utf-8')
@@ -43,10 +38,10 @@ def load_csv(file):
         return pd.read_csv(file, encoding='latin1')
 
 # --- STREAMLIT UI ---
-st.set_page_config(page_title="Generator: Final Version", page_icon="💎")
+st.set_page_config(page_title="Generator: Format Preserver", page_icon="🎨")
 
-st.title("💎 Final Document Generator")
-st.markdown("Handles **Adults/Kids/Teens** matching and updates the **invitation text** automatically.")
+st.title("🎨 Document Generator (Format Preserver)")
+st.markdown("Generates docs while keeping your **bolding, colors, and fonts** intact.")
 
 # 1. FILE UPLOADERS
 col1, col2 = st.columns(2)
@@ -71,24 +66,18 @@ if st.button("🚀 Generate Files", type="primary"):
         st.error("Please upload all 3 files.")
     else:
         try:
-            # Load Data (Smart Loader)
             courses_df = load_csv(course_file)
             links_df = load_csv(links_file)
             
-            # Clean Headers (Uppercased and Strip)
             courses_df.columns = [str(c).upper().strip() for c in courses_df.columns]
             links_df.columns = [str(c).upper().strip() for c in links_df.columns]
             
-            # --- DETECT MODE ---
             MODE = "UNKNOWN"
             if 'EDAD' in links_df.columns:
                 MODE = "CATEGORY"
-                st.info("🔹 Mode Detected: **Category Matching** (Kids/Teens)")
             elif 'HORA' in links_df.columns:
                 MODE = "TIME"
-                st.info("🔹 Mode Detected: **Time Matching** (Adults)")
             
-            # Smart Column Detection
             link_level_col = 'NIVEL' if 'NIVEL' in links_df.columns else 'LEVEL'
             
             zip_buffer = io.BytesIO()
@@ -99,39 +88,31 @@ if st.button("🚀 Generate Files", type="primary"):
                 total_rows = len(courses_df)
 
                 for index, row in courses_df.iterrows():
-                    # Extract Common Data
                     level_raw = str(row.get('NIVEL', '')).strip()
                     schedule_raw = str(row.get('HORARIO', '')).strip()
                     id_raw = str(row.get('ID', '')).replace('.0', '').strip()
                     
-                    # Normalize for matching
                     course_lvl_code = normalize_level(level_raw)
                     course_h, course_m = get_start_time(schedule_raw)
 
-                    # Initialize Logic Vars
                     found_link = "LINK_NOT_FOUND"
                     category_prefix = "" 
-                    type_label = "para adultos" # Default text
+                    type_label = "para adultos"
 
-                    # --- MATCHING LOGIC ---
                     if MODE == "CATEGORY":
-                        # Get Category from Course
-                        course_cat = normalize_text(str(row.get('CATEGORIA', ''))) # ninos / jovenes
+                        course_cat = normalize_text(str(row.get('CATEGORIA', '')))
                         category_prefix = course_cat.upper() + "_"
 
-                        # Set Type Label
                         if "nino" in course_cat: type_label = "para niños"
                         elif "joven" in course_cat: type_label = "para jóvenes"
 
                         for _, link_row in links_df.iterrows():
-                            # Get Link Category
                             link_cat_raw = str(link_row.get('EDAD', ''))
                             link_cat = normalize_text(link_cat_raw)
                             link_lvl_code = normalize_level(str(link_row.get(link_level_col, '')))
                             
                             if link_lvl_code != course_lvl_code: continue
 
-                            # Smart Category Match
                             is_cat_match = False
                             if "nino" in course_cat and "kid" in link_cat: is_cat_match = True
                             elif "joven" in course_cat and "joven" in link_cat: is_cat_match = True
@@ -142,7 +123,6 @@ if st.button("🚀 Generate Files", type="primary"):
                                 break
 
                     elif MODE == "TIME":
-                        # Adults Logic
                         if course_h is not None:
                             for _, link_row in links_df.iterrows():
                                 link_h, link_m = get_start_time(str(link_row.get('HORA', '')))
@@ -152,36 +132,38 @@ if st.button("🚀 Generate Files", type="primary"):
                                     found_link = str(link_row.get('LINK', 'MISSING_LINK'))
                                     break
                     
-                    # --- CREATE DOC ---
+                    # --- CREATE DOC (FORMAT PRESERVING) ---
                     try:
                         template_file.seek(0)
                         doc = Document(template_file)
                         
-                        for p in doc.paragraphs:
-                            # 1. Date Fix
-                            if "24 de" in p.text and "2025" in p.text:
-                                p.text = re.sub(r'24 de \w+ de 2025', date_text, p.text, flags=re.IGNORECASE)
-                            
-                            # 2. Standard placeholders
-                            if "{{LEVEL}}" in p.text: p.text = p.text.replace("{{LEVEL}}", level_raw)
-                            if "{{ID}}" in p.text: p.text = p.text.replace("{{ID}}", id_raw)
-                            if "{{WA_LINK}}" in p.text: p.text = p.text.replace("{{WA_LINK}}", found_link)
-                            if "{{SCHEDULE}}" in p.text: 
-                                p.text = p.text.replace("{{SCHEDULE}}", f"{days_text} / {schedule_raw}")
+                        replacements = {
+                            "{{LEVEL}}": level_raw,
+                            "{{ID}}": id_raw,
+                            "{{WA_LINK}}": found_link,
+                            "{{SCHEDULE}}": f"{days_text} / {schedule_raw}",
+                            "{{TYPE}}": type_label
+                        }
 
-                            # 3. TYPE REPLACEMENT (Adults/Kids/Teens)
-                            # If user put {{TYPE}} in doc:
-                            if "{{TYPE}}" in p.text: 
-                                p.text = p.text.replace("{{TYPE}}", type_label)
-                            
-                            # Auto-fix: If user left "para adultos" in doc but this is a kids/teens course:
-                            if "para adultos" in p.text and type_label != "para adultos":
-                                p.text = p.text.replace("para adultos", type_label)
+                        # Auto-fix Adults label if needed
+                        if type_label != "para adultos":
+                            replacements["para adultos"] = type_label
+
+                        for p in doc.paragraphs:
+                            # We iterate through the runs to preserve formatting
+                            for run in p.runs:
+                                # 1. Replace Text
+                                for key, val in replacements.items():
+                                    if key in run.text:
+                                        run.text = run.text.replace(key, val)
+                                
+                                # 2. Replace Date
+                                if "24 de" in run.text and "2025" in run.text:
+                                    run.text = re.sub(r'24 de \w+ de 2025', date_text, run.text, flags=re.IGNORECASE)
 
                         doc_io = io.BytesIO()
                         doc.save(doc_io)
                         
-                        # FILENAME
                         schedule_safe = schedule_raw.replace(":", "").replace(" ", "").replace("/", "")
                         fname_str = f"{category_prefix}{level_raw}_{schedule_safe}.docx"
                         fname = clean_filename(fname_str)
